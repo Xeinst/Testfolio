@@ -48,3 +48,12 @@ git branch -M main
 git remote add origin https://github.com/YOUR_USERNAME/Testfolio.git
 git push -u origin main
 ```
+
+## Deploy to Vercel
+
+1. Go to [vercel.com/new](https://vercel.com/new).
+2. **Import** your GitHub repo (e.g. `Xeinst/Testfolio`).
+3. Leave **Root Directory** empty (repo root has `frontend/` and `api/`).
+4. **Build** is set via `vercel.json`: install and build run from `frontend/`.
+5. Optional: add **Environment Variable** `VITE_API_URL` = `` (empty) so the app uses the same-origin `/api` on Vercel.
+6. Click **Deploy**. Your live link will be like `https://testfolio-xxx.vercel.app`.
