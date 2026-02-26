@@ -23,6 +23,16 @@ const REBALANCE_OPTIONS = [
 
 const defaultPortfolio = () => ({ name: 'Portfolio 1', tickers: ['VTI', 'BND'], weights: [0.6, 0.4] })
 
+function normalizeWeights(weights, n) {
+  if (!n) return []
+  let w = (weights || []).slice(0, n).map((x) => Math.max(0, Number(x) || 0))
+  while (w.length < n) w.push(0)
+  w = w.slice(0, n)
+  const sum = w.reduce((a, b) => a + b, 0)
+  if (sum <= 0) return Array(n).fill(1 / n)
+  return w.map((x) => x / sum)
+}
+
 function App() {
   const [tool, setTool] = useState('backtester')
   const [startDate, setStartDate] = useState('2015-01-01')
@@ -51,6 +61,54 @@ function App() {
     setPortfolios((p) => p.filter((_, j) => j !== i))
   }
 
+  const addTicker = (portIndex) => {
+    setPortfolios((p) => {
+      const next = [...p]
+      const port = next[portIndex]
+      const tickers = [...(port.tickers || []), '']
+      const n = tickers.length
+      const weights = Array(n).fill(1 / n)
+      next[portIndex] = { ...port, tickers, weights }
+      return next
+    })
+  }
+
+  const removeTicker = (portIndex, tickIndex) => {
+    setPortfolios((p) => {
+      const next = [...p]
+      const port = next[portIndex]
+      if (port.tickers.length <= 1) return p
+      const tickers = port.tickers.filter((_, j) => j !== tickIndex)
+      const weights = (port.weights || []).filter((_, j) => j !== tickIndex)
+      const n = tickers.length
+      next[portIndex] = { ...port, tickers, weights: normalizeWeights(weights, n) }
+      return next
+    })
+  }
+
+  const setTicker = (portIndex, tickIndex, value) => {
+    const sym = (value || '').trim().toUpperCase()
+    setPortfolios((p) => {
+      const next = [...p]
+      const tickers = [...next[portIndex].tickers]
+      tickers[tickIndex] = sym
+      next[portIndex] = { ...next[portIndex], tickers }
+      return next
+    })
+  }
+
+  const setWeight = (portIndex, tickIndex, value) => {
+    const w = Number(value)
+    setPortfolios((p) => {
+      const next = [...p]
+      const weights = [...(next[portIndex].weights || [])]
+      while (weights.length <= tickIndex) weights.push(0)
+      weights[tickIndex] = isNaN(w) ? 0 : w
+      next[portIndex] = { ...next[portIndex], weights }
+      return next
+    })
+  }
+
   const updatePortfolio = (i, field, value) => {
     setPortfolios((p) => {
       const next = [...p]
@@ -59,35 +117,33 @@ function App() {
     })
   }
 
-  const updateTickers = (i, str) => {
-    const tickers = str.split(/[\s,]+/).filter(Boolean).map((t) => t.trim().toUpperCase())
-    const weights = portfolios[i].weights?.length === tickers.length
-      ? portfolios[i].weights
-      : tickers.map(() => 1 / tickers.length)
-    updatePortfolio(i, 'tickers', tickers)
-    updatePortfolio(i, 'weights', weights)
-  }
-
   const runBacktest = async () => {
     setError(null)
     setResult(null)
     setLoading(true)
+    const payload = {
+      portfolios: portfolios.map((p) => {
+        const tickers = (p.tickers || []).filter(Boolean).map((t) => String(t).trim().toUpperCase())
+        const rawWeights = p.weights || []
+        const weights = tickers.length ? normalizeWeights(rawWeights, tickers.length) : []
+        return { name: p.name || 'Portfolio', tickers, weights }
+      }).filter((p) => p.tickers.length > 0),
+      start_date: startDate,
+      end_date: endDate,
+      starting_value: startingValue,
+      rebalance_freq: rebalanceFreq,
+      adjust_inflation: adjustInflation,
+    }
+    if (payload.portfolios.length === 0) {
+      setError('Add at least one portfolio with at least one ticker.')
+      setLoading(false)
+      return
+    }
     try {
       const res = await fetch(`${API}/api/backtest`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          portfolios: portfolios.map((p) => ({
-            name: p.name,
-            tickers: p.tickers,
-            weights: p.weights,
-          })),
-          start_date: startDate,
-          end_date: endDate,
-          starting_value: startingValue,
-          rebalance_freq: rebalanceFreq,
-          adjust_inflation: adjustInflation,
-        }),
+        body: JSON.stringify(payload),
       })
       const data = await res.json()
       if (data.error) {
@@ -116,7 +172,8 @@ function App() {
       })()
     : []
 
-  const colors = ['#2563eb', '#dc2626', '#16a34a', '#ca8a04', '#9333ea']
+  const colors = ['#f59e0b', '#2563eb', '#dc2626', '#16a34a', '#ca8a04', '#9333ea']
+  const isBenchmark = (name) => name === 'S&P 500'
 
   return (
     <div className="app">
@@ -153,7 +210,7 @@ function App() {
               <section className="panel about-panel">
                 <h2>Portfolio Backtester</h2>
                 <p>
-                  Construct investment portfolios and compare their historical performance. No account required — all tools and higher limits are free.
+                  Add individual stocks or ETFs — unlimited tickers per portfolio. S&P 500 (SPY) is always included as a benchmark for comparison.
                 </p>
               </section>
 
@@ -201,9 +258,10 @@ function App() {
                   <h3>Portfolios</h3>
                   <button type="button" className="btn-add" onClick={addPortfolio}>Add portfolio</button>
                 </div>
+                <p className="benchmark-note">S&P 500 (SPY) is automatically included as a benchmark in every backtest.</p>
                 {portfolios.map((p, i) => (
                   <div key={i} className="portfolio-block">
-                    <div className="portfolio-row">
+                    <div className="portfolio-row portfolio-name-row">
                       <input
                         type="text"
                         className="portfolio-name"
@@ -211,39 +269,40 @@ function App() {
                         onChange={(e) => updatePortfolio(i, 'name', e.target.value)}
                         placeholder="Portfolio name"
                       />
-                      <input
-                        type="text"
-                        className="tickers-input"
-                        value={p.tickers.join(', ')}
-                        onChange={(e) => updateTickers(i, e.target.value)}
-                        placeholder="Tickers (e.g. VTI, BND, VXUS)"
-                      />
                       {portfolios.length > 1 && (
-                        <button type="button" className="btn-remove" onClick={() => removePortfolio(i)} aria-label="Remove">×</button>
+                        <button type="button" className="btn-remove" onClick={() => removePortfolio(i)} aria-label="Remove portfolio">×</button>
                       )}
                     </div>
-                    {p.tickers.length > 1 && (
-                      <div className="weights-row">
-                        <span className="weights-label">Weights:</span>
-                        {p.tickers.map((t, j) => (
-                          <label key={j} className="weight-input">
-                            {t}
-                            <input
-                              type="number"
-                              min={0}
-                              max={1}
-                              step={0.01}
-                              value={p.weights?.[j] ?? 1 / p.tickers.length}
-                              onChange={(e) => {
-                                const w = [...(p.weights || [])]
-                                w[j] = Number(e.target.value)
-                                updatePortfolio(i, 'weights', w)
-                              }}
-                            />
-                          </label>
-                        ))}
-                      </div>
-                    )}
+                    <div className="tickers-list">
+                      {(p.tickers || []).map((ticker, j) => (
+                        <div key={j} className="ticker-row">
+                          <input
+                            type="text"
+                            className="ticker-symbol"
+                            value={ticker}
+                            onChange={(e) => setTicker(i, j, e.target.value)}
+                            placeholder="Symbol (e.g. AAPL, VTI)"
+                          />
+                          {(p.tickers?.length || 0) > 1 && (
+                            <label className="weight-inline">
+                              <span>%</span>
+                              <input
+                                type="number"
+                                min={0}
+                                max={100}
+                                step={0.5}
+                                value={((p.weights?.[j] ?? 1 / (p.tickers?.length || 1)) * 100).toFixed(1)}
+                                onChange={(e) => setWeight(i, j, (Number(e.target.value) || 0) / 100)}
+                              />
+                            </label>
+                          )}
+                          {p.tickers?.length > 1 && (
+                            <button type="button" className="btn-remove-ticker" onClick={() => removeTicker(i, j)} aria-label="Remove ticker">×</button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    <button type="button" className="btn-add-ticker" onClick={() => addTicker(i)}>+ Add ticker</button>
                   </div>
                 ))}
                 <button type="button" className="btn-backtest" onClick={runBacktest} disabled={loading}>
@@ -276,8 +335,8 @@ function App() {
                         </thead>
                         <tbody>
                           {result.metrics.map((m, i) => (
-                            <tr key={i}>
-                              <td>{m.name}</td>
+                            <tr key={i} className={isBenchmark(m.name) ? 'benchmark-row' : ''}>
+                              <td>{m.name}{isBenchmark(m.name) && <span className="benchmark-badge">Benchmark</span>}</td>
                               <td>{m.cagr}</td>
                               <td>{m.volatility}</td>
                               <td>{m.sharpe}</td>

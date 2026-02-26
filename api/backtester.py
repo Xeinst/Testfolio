@@ -59,6 +59,9 @@ def run_backtest(
     end = pd.Timestamp(end_date).date()
     if start >= end:
         return {"error": "Start date must be before end date."}
+    # Always prepend S&P 500 (SPY) as automatic benchmark
+    benchmark = {"name": "S&P 500", "tickers": ["SPY"], "weights": [1.0]}
+    portfolios = [benchmark] + list(portfolios)
     all_tickers = []
     for p in portfolios:
         all_tickers.extend(p.get("tickers") or [])
