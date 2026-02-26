@@ -2,7 +2,13 @@ import { useState, useEffect } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import './App.css'
 
-const API = import.meta.env.VITE_API_URL !== undefined ? import.meta.env.VITE_API_URL : 'http://localhost:8000'
+// Use same-origin /api on Vercel; use localhost when developing locally
+function getApiBase() {
+  if (import.meta.env.VITE_API_URL !== undefined && import.meta.env.VITE_API_URL !== '') return import.meta.env.VITE_API_URL
+  if (typeof window !== 'undefined' && window.location?.hostname !== 'localhost' && window.location?.hostname !== '127.0.0.1') return ''
+  return 'http://localhost:8000'
+}
+const API = getApiBase()
 
 const TOOLS = [
   { id: 'backtester', label: 'Portfolio Backtester', icon: '📈' },
